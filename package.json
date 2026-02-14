@@ -1,0 +1,55 @@
+{
+  "name": "manifold",
+  "displayName": "Manifold",
+  "description": "One-click app provisioning chat participant",
+  "version": "0.0.2",
+  "license": "MIT",
+  "publisher": "manifold",
+  "engines": {
+    "vscode": "^1.102.0"
+  },
+  "categories": [
+    "Other",
+    "Chat"
+  ],
+  "activationEvents": [
+    "onChatParticipant:manifold.manifold"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "manifold.runElevatedInstall",
+        "title": "Manifold: Run Elevated Install"
+      },
+      {
+        "command": "manifold.reset",
+        "title": "Manifold: Reset State"
+      },
+      {
+        "command": "manifold.setup",
+        "title": "Manifold: Setup Project"
+      }
+    ],
+    "chatParticipants": [
+      {
+        "id": "manifold.manifold",
+        "name": "manifold",
+        "fullName": "Manifold",
+        "description": "Provision and deploy full-stack apps",
+        "isSticky": true
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "release:vsix": "npm version patch && npm run compile && npx @vscode/vsce package -o builds/ --allow-missing-repository"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.57",
+    "@types/vscode": "^1.102.0",
+    "typescript": "^5.8.3"
+  }
+}
