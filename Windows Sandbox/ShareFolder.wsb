@@ -2,7 +2,7 @@
   <MappedFolders>
     <MappedFolder>
       <HostFolder>C:\Path\To\Your\Host\Folder</HostFolder>
-      <SandboxFolder>C:\Users\Arsalan Hashmi\Desktop\Path\manifold-dev</SandboxFolder>
+      <SandboxFolder></SandboxFolder>
       <ReadOnly>false</ReadOnly>
     </MappedFolder>
   </MappedFolders>
