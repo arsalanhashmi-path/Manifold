@@ -33,13 +33,14 @@ into a guided pipeline that checks your machine, validates auth, scaffolds a Rea
 
 You need these accounts before running setup:
 
-| Account | Why it is required | Minimum needed |
-| :-- | :-- | :-- |
-| **GitHub** | Creates and pushes project repository | Account with permission to create private repos |
-| **Vercel** | Creates project, links it, and deploys frontend | Account connected to CLI login |
-| **Supabase** | Verifies credentials and deploys Edge Function | Project + either PAT or Project URL + Publishable Key |
+| Account      | Why it is required                              | Minimum needed                                           |
+| :----------- | :---------------------------------------------- | :------------------------------------------------------- |
+| **GitHub**   | Creates and pushes project repository           | Account with permission to create private repos          |
+| **Vercel**   | Creates project, links it, and deploys frontend | Account connected to CLI login                           |
+| **Supabase** | Verifies credentials and deploys Edge Function  | Project using either PAT + Project URL + Publishable Key |
 
 Recommended:
+
 - Keep all three accounts under the same email/org context for easier permission handling.
 
 ---
@@ -78,9 +79,9 @@ gh auth login
 vercel login
 ```
 
-For Supabase, use **one** of these methods when prompted by Manifold:
+For Supabase, use these methods when prompted by Manifold:
 
-1. **Personal Access Token** (`sbp_...`)  
+1. **Personal Access Token** (`sbp_...`)
 2. **Project URL + Publishable API Key** (`https://<ref>.supabase.co` + `sb_publishable_...`)
 
 ---
@@ -115,6 +116,7 @@ In the Extension Host window, open Chat and run:
 ### 4) Follow prompts until completion
 
 Manifold will:
+
 - Check toolchain
 - Verify auth
 - Scaffold project
