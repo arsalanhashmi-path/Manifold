@@ -11,6 +11,12 @@ function parseSetupProjectName(prompt: string): string | undefined {
   return match?.[1];
 }
 
+function parseDeployProjectName(prompt: string): string | undefined {
+  const trimmed = prompt.trim();
+  const match = trimmed.match(/^deploy(?:\s+([a-zA-Z0-9-_]+))?/i);
+  return match?.[1];
+}
+
 function toPlainText(markdown: string): string {
   return markdown
     .replace(/\*\*/g, "")
@@ -104,7 +110,22 @@ export function activate(context: vscode.ExtensionContext): void {
     await manifold.handleSetup(projectName, createOutputStream(output));
   });
 
-  context.subscriptions.push(elevatedInstallDisposable, resetDisposable, setupDisposable);
+  const deployDisposable = vscode.commands.registerCommand("manifold.deploy", async () => {
+    const folder = getPrimaryWorkspaceFolder();
+    if (!folder) {
+      await vscode.window.showWarningMessage("Open a workspace folder before using Manifold.");
+      return;
+    }
+
+    const manifold = Manifold.fromWorkspace(folder, context.globalStorageUri.fsPath, context.secrets);
+    const output = vscode.window.createOutputChannel("Manifold");
+    output.show(true);
+    output.appendLine("Starting Manifold deploy");
+
+    await manifold.handleDeploy(undefined, createOutputStream(output));
+  });
+
+  context.subscriptions.push(elevatedInstallDisposable, resetDisposable, setupDisposable, deployDisposable);
 
   const vscodeAny = vscode as any;
   if (vscodeAny.chat?.createChatParticipant) {
@@ -118,13 +139,19 @@ export function activate(context: vscode.ExtensionContext): void {
       const manifold = Manifold.fromWorkspace(folder, context.globalStorageUri.fsPath, context.secrets);
       const prompt = String(request?.prompt ?? "");
       const projectName = parseSetupProjectName(prompt);
+      const deployProjectName = parseDeployProjectName(prompt);
 
       if (/^setup/i.test(prompt.trim())) {
         await manifold.handleSetup(projectName, stream);
         return;
       }
 
-      stream.markdown("Manifold is active. Try: `@manifold setup my-cool-app`.");
+      if (/^deploy/i.test(prompt.trim())) {
+        await manifold.handleDeploy(deployProjectName, stream);
+        return;
+      }
+
+      stream.markdown("Manifold is active. Try: `@manifold setup my-cool-app` or `@manifold deploy`.");
     });
 
     context.subscriptions.push(participant);

@@ -4,7 +4,7 @@
 
 ### One-command full-stack provisioning inside VS Code Chat
 
-[![VS Code Extension](https://img.shields.io/badge/VS_Code-Extension-007ACC?style=for-the-badge&logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=manifold.manifold)
+[![VS Code Extension](https://img.shields.io/badge/VS_Code-Extension-007ACC?style=for-the-badge&logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=PathSystems.manifold)
 [![Node.js](https://img.shields.io/badge/Node.js-LTS-339933?style=for-the-badge&logo=nodedotjs)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
 [![Supabase](https://img.shields.io/badge/Supabase-Backend-3ECF8E?style=for-the-badge&logo=supabase)](https://supabase.com/)
@@ -123,4 +123,37 @@ In VS Code Chat:
 ```
 
 Manifold will guide each phase in order and report progress as it provisions and deploys.
+
+---
+
+## Deploy updates with one command
+
+After setup is complete, you can deploy new changes anytime with:
+
+```text
+@manifold deploy
+```
+
+Or target a specific scaffolded project name:
+
+```text
+@manifold deploy my-app
+```
+
+### What deploy does
+
+- Verifies GitHub CLI and Vercel CLI authentication
+- Finds your project folder (either current workspace root or `<workspace>/<project-name>`)
+- Stages and commits local changes
+- Pushes to GitHub
+- Deploys frontend to Vercel
+- Deploys updated Supabase Edge Function (`api`)
+
+### Requirements for deploy
+
+- Setup must have run at least once so `.manifold.json` contains project/resource state
+- You must be authenticated with:
+	- `gh auth login`
+	- `vercel login`
+- Supabase access token must be available from the setup flow
 

@@ -2,9 +2,9 @@
   "name": "manifold",
   "displayName": "Manifold",
   "description": "One-click app provisioning chat participant",
-  "version": "0.0.3",
+  "version": "0.0.5",
   "license": "MIT",
-  "publisher": "manifold",
+  "publisher": "PathSystems",
   "repository": {
     "type": "git",
     "url": "https://github.com/arsalanhashmi-path/manifold.git"
@@ -19,6 +19,7 @@
   "activationEvents": [
     "onChatParticipant:manifold.manifold"
   ],
+  "icon": "media/milky-way.png",
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
@@ -33,6 +34,10 @@
       {
         "command": "manifold.setup",
         "title": "Manifold: Setup Project"
+      },
+      {
+        "command": "manifold.deploy",
+        "title": "Manifold: Deploy Project"
       }
     ],
     "chatParticipants": [

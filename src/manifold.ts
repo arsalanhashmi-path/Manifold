@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as path from "node:path";
+import { exec } from "node:child_process";
 import { installMissingTool, runEnvironmentChecks, ToolKey } from "./start";
 import { BackendStack, StateManager } from "./state";
 import { runInManifoldTerminal } from "./utils/terminal";
@@ -46,6 +47,121 @@ export class Manifold {
 
     stream.markdown(`## Manifold Setup\nInitializing setup for **${selectedName}**.\n\n`);
     await this.bootstrap(stream);
+  }
+
+  async handleDeploy(projectName: string | undefined, stream: any): Promise<void> {
+    const state = await this.stateManager.ensureInitialized(projectName?.trim() || "my-app", "flask");
+    const selectedName = projectName?.trim() || state.config.project_name;
+    const projectRoot = await this.resolveDeployProjectRoot(selectedName);
+
+    if (!projectRoot) {
+      stream.markdown("❌ Could not locate a deployable project folder. Run `@manifold setup <project-name>` first, or pass a valid project name.\n");
+      await this.stateManager.patch({ current_phase: "5_deploy", status: "failed" });
+      return;
+    }
+
+    stream.markdown(`## Manifold Deploy\nDeploying **${selectedName}**.\n\n`);
+
+    const gh = await checkGhAuthStatus();
+    if (!gh.ok) {
+      stream.markdown("❌ GitHub CLI is not authenticated. Run `gh auth login` and retry.\n");
+      await this.stateManager.patch({ current_phase: "5_deploy", status: "paused_at_auth" });
+      return;
+    }
+
+    const vercel = await checkVercelWhoAmI();
+    if (!vercel.ok) {
+      stream.markdown("❌ Vercel CLI is not authenticated. Run `vercel login` and retry.\n");
+      await this.stateManager.patch({ current_phase: "5_deploy", status: "paused_at_auth" });
+      return;
+    }
+
+    await this.stateManager.patch({ current_phase: "5_deploy", status: "in_progress" });
+    stream.markdown("### Deploy · Git Sync\nStaging and pushing project changes to GitHub\n\n");
+
+    const gitCheck = await this.execCommand("git rev-parse --is-inside-work-tree", projectRoot);
+    if (!gitCheck.ok) {
+      stream.markdown("❌ Project is not a git repository. Run setup first or initialize git in the project folder.\n");
+      await this.stateManager.patch({ current_phase: "5_deploy", status: "failed" });
+      return;
+    }
+
+    const statusBefore = await this.execCommand("git status --porcelain", projectRoot);
+    const hasChanges = statusBefore.ok && statusBefore.output.trim().length > 0;
+
+    if (hasChanges) {
+      const add = await this.execCommand("git add -A", projectRoot);
+      if (!add.ok) {
+        stream.markdown(`❌ Failed to stage changes: ${add.output || "unknown error"}\n`);
+        await this.stateManager.patch({ current_phase: "5_deploy", status: "failed" });
+        return;
+      }
+
+      const commitMessage = `"Manifold deploy ${new Date().toISOString()}"`;
+      const commit = await this.execCommand(`git commit -m ${commitMessage}`, projectRoot);
+      if (!commit.ok && !/nothing to commit/i.test(commit.output)) {
+        stream.markdown(`❌ Failed to commit changes: ${commit.output || "unknown error"}\n`);
+        await this.stateManager.patch({ current_phase: "5_deploy", status: "failed" });
+        return;
+      }
+      stream.markdown("- ✅ Local changes committed\n");
+    } else {
+      stream.markdown("- ℹ️ No local changes to commit\n");
+    }
+
+    const push = await this.execCommand("git push", projectRoot, 180_000);
+    if (!push.ok) {
+      stream.markdown(`❌ Git push failed: ${push.output || "unknown error"}\n`);
+      await this.stateManager.patch({ current_phase: "5_deploy", status: "failed" });
+      return;
+    }
+    stream.markdown("- ✅ Changes pushed to GitHub\n\n");
+
+    const latestState = await this.stateManager.read();
+    const supabaseAccessToken = latestState.credentials.supabase_access_token;
+    const supabaseRef = latestState.resources.supabase_ref;
+    const vercelToken = latestState.credentials.vercel_token;
+
+    if (!supabaseAccessToken) {
+      stream.markdown("❌ Missing Supabase access token in state. Run `@manifold setup <project-name>` to restore credentials.\n");
+      await this.stateManager.patch({ current_phase: "5_deploy", status: "paused_at_auth" });
+      return;
+    }
+
+    stream.markdown("### Deploy · Cloud Release\nDeploying frontend to Vercel and updating Supabase Edge Functions\n\n");
+    const deployResult = await runDeployment(
+      projectRoot,
+      vercelToken ?? undefined,
+      supabaseAccessToken,
+      supabaseRef ?? undefined
+    );
+
+    if (deployResult.logFilePath) {
+      stream.markdown(`- Deploy log: \`${deployResult.logFilePath}\`\n`);
+    }
+
+    if (!deployResult.ok) {
+      if (deployResult.errors.length > 0) {
+        stream.markdown("\n**Detected deployment issues**\n");
+        for (const err of deployResult.errors) {
+          stream.markdown(`- **${err.type}**: ${err.line}\n`);
+          stream.markdown(`  → ${err.suggestion}\n`);
+        }
+      }
+
+      await this.stateManager.patch({ current_phase: "5_deploy", status: "failed" });
+      stream.markdown("\n❌ Deploy failed. Fix issues and run `@manifold deploy` again.\n");
+      return;
+    }
+
+    await this.stateManager.patch({ current_phase: "5_deploy", status: "complete" });
+    stream.markdown("\n✅ Deploy complete. Frontend and Supabase functions are updated.\n");
+    if (deployResult.frontendUrl) {
+      stream.markdown(`- Frontend URL: ${deployResult.frontendUrl}\n`);
+    }
+    if (deployResult.publicUrl) {
+      stream.markdown(`- Public URL: ${deployResult.publicUrl}\n`);
+    }
   }
 
   async bootstrap(stream: any): Promise<void> {
@@ -166,6 +282,33 @@ export class Manifold {
   }
 
   setBackend(_backend: BackendStack): void {
+  }
+
+  private execCommand(commandLine: string, cwd: string, timeout = 120_000): Promise<{ ok: boolean; output: string }> {
+    return new Promise((resolve) => {
+      exec(commandLine, { cwd, timeout }, (error, stdout, stderr) => {
+        resolve({
+          ok: !error,
+          output: `${stdout ?? ""}${stderr ?? ""}`.trim()
+        });
+      });
+    });
+  }
+
+  private async resolveDeployProjectRoot(projectName: string): Promise<string | null> {
+    const candidates = [
+      path.join(this.workspaceRoot, projectName),
+      this.workspaceRoot
+    ];
+
+    for (const candidate of candidates) {
+      const check = await this.execCommand("git rev-parse --is-inside-work-tree", candidate);
+      if (check.ok) {
+        return candidate;
+      }
+    }
+
+    return null;
   }
 
   private async runAuthHandshake(stream: any): Promise<void> {

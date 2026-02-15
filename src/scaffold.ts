@@ -226,7 +226,19 @@ dist/
 
   await writeFileIfMissing(
     path.join(frontendRoot, "src", "api.ts"),
-    `export async function getHealth(): Promise<string> {
+    `export interface Contact {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  company: string;
+  notes: string;
+  createdAt: string;
+}
+
+const STORAGE_KEY = "manifold.contacts.list";
+
+export async function getHealth(): Promise<string> {
   const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL;
   const supabasePublishableKey = (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY;
   if (!supabaseUrl) {
@@ -251,6 +263,56 @@ dist/
   }
   return "ok";
 }
+
+export function loadContacts(): Contact[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    const contacts: Contact[] = [];
+    for (const item of parsed) {
+      if (!item || typeof item !== "object") {
+        continue;
+      }
+
+      const candidate = item as Partial<Contact>;
+      if (
+        typeof candidate.id === "string" &&
+        typeof candidate.name === "string" &&
+        typeof candidate.email === "string" &&
+        typeof candidate.phone === "string" &&
+        typeof candidate.company === "string" &&
+        typeof candidate.notes === "string" &&
+        typeof candidate.createdAt === "string"
+      ) {
+        contacts.push(candidate as Contact);
+      }
+    }
+
+    return contacts;
+  } catch {
+    return [];
+  }
+}
+
+export function saveContacts(contacts: Contact[]): void {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(contacts));
+}
+
+export function makeContactId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return \`${Date.now()}-${Math.random().toString(36).slice(2, 10)}\`;
+}
 `,
     created
   );
@@ -259,22 +321,232 @@ dist/
     path.join(frontendRoot, "src", "main.tsx"),
     `import React from "react";
 import { createRoot } from "react-dom/client";
-import { getHealth } from "./api";
+import { Contact, getHealth, loadContacts, makeContactId, saveContacts } from "./api";
+
+function sortByCreatedAt(contacts: Contact[]): Contact[] {
+  return [...contacts].sort((left, right) => {
+    return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
+  });
+}
+
+function ContactCard(props: {
+  contact: Contact;
+  onUpdate: (contactId: string, patch: Partial<Pick<Contact, "name" | "email" | "phone" | "company" | "notes">>) => void;
+  onDelete: (contactId: string) => void;
+}) {
+  const { contact, onUpdate, onDelete } = props;
+  const [isEditing, setIsEditing] = React.useState(false);
+  const [name, setName] = React.useState(contact.name);
+  const [email, setEmail] = React.useState(contact.email);
+  const [phone, setPhone] = React.useState(contact.phone);
+  const [company, setCompany] = React.useState(contact.company);
+  const [notes, setNotes] = React.useState(contact.notes);
+
+  React.useEffect(() => {
+    setName(contact.name);
+    setEmail(contact.email);
+    setPhone(contact.phone);
+    setCompany(contact.company);
+    setNotes(contact.notes);
+  }, [contact.company, contact.email, contact.name, contact.notes, contact.phone]);
+
+  return (
+    <div
+      style={{
+        background: "#ffffff",
+        border: "1px solid #e5e7eb",
+        borderRadius: 10,
+        padding: 12,
+        display: "grid",
+        gap: 10,
+        boxShadow: "0 1px 3px rgba(0, 0, 0, 0.06)"
+      }}
+    >
+      {isEditing ? (
+        <>
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Name"
+            style={{
+              width: "100%",
+              border: "1px solid #d1d5db",
+              borderRadius: 8,
+              padding: "8px 10px",
+              fontSize: 14
+            }}
+          />
+          <textarea
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+            placeholder="Notes"
+            rows={2}
+            style={{
+              width: "100%",
+              border: "1px solid #d1d5db",
+              borderRadius: 8,
+              padding: "8px 10px",
+              fontSize: 13,
+              resize: "vertical"
+            }}
+          />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <input
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="Email"
+              style={{
+                width: "100%",
+                border: "1px solid #d1d5db",
+                borderRadius: 8,
+                padding: "8px 10px",
+                fontSize: 13
+              }}
+            />
+            <input
+              value={phone}
+              onChange={(event) => setPhone(event.target.value)}
+              placeholder="Phone"
+              style={{
+                width: "100%",
+                border: "1px solid #d1d5db",
+                borderRadius: 8,
+                padding: "8px 10px",
+                fontSize: 13
+              }}
+            />
+          </div>
+          <input
+            value={company}
+            onChange={(event) => setCompany(event.target.value)}
+            placeholder="Company"
+            style={{
+              width: "100%",
+              border: "1px solid #d1d5db",
+              borderRadius: 8,
+              padding: "8px 10px",
+              fontSize: 13
+            }}
+          />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={() => {
+                const normalizedName = name.trim();
+                if (normalizedName.length === 0) {
+                  return;
+                }
+                onUpdate(contact.id, {
+                  name: normalizedName,
+                  email: email.trim(),
+                  phone: phone.trim(),
+                  company: company.trim(),
+                  notes: notes.trim()
+                });
+                setIsEditing(false);
+              }}
+              style={{
+                border: "none",
+                borderRadius: 8,
+                padding: "7px 10px",
+                background: "#111827",
+                color: "#ffffff",
+                cursor: "pointer",
+                fontSize: 12
+              }}
+            >
+              Save
+            </button>
+            <button
+              onClick={() => {
+                setName(contact.name);
+                setEmail(contact.email);
+                setPhone(contact.phone);
+                setCompany(contact.company);
+                setNotes(contact.notes);
+                setIsEditing(false);
+              }}
+              style={{
+                border: "1px solid #d1d5db",
+                borderRadius: 8,
+                padding: "7px 10px",
+                background: "#ffffff",
+                cursor: "pointer",
+                fontSize: 12
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 }}>{contact.name}</div>
+            <div style={{ color: "#4b5563", fontSize: 13 }}>{contact.email || "No email"}</div>
+            <div style={{ color: "#4b5563", fontSize: 13 }}>{contact.phone || "No phone"}</div>
+            {contact.company.length > 0 ? <div style={{ color: "#374151", fontSize: 13 }}>Company: {contact.company}</div> : null}
+            {contact.notes.length > 0 ? (
+              <div style={{ color: "#4b5563", fontSize: 13, whiteSpace: "pre-wrap", marginTop: 6 }}>{contact.notes}</div>
+            ) : null}
+          </div>
+
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              onClick={() => setIsEditing(true)}
+              style={{
+                border: "1px solid #d1d5db",
+                borderRadius: 8,
+                padding: "6px 8px",
+                background: "#ffffff",
+                cursor: "pointer",
+                fontSize: 12
+              }}
+            >
+              Edit
+            </button>
+            <button
+              onClick={() => onDelete(contact.id)}
+              style={{
+                border: "1px solid #fecaca",
+                borderRadius: 8,
+                padding: "6px 8px",
+                background: "#fff1f2",
+                color: "#9f1239",
+                cursor: "pointer",
+                fontSize: 12
+              }}
+            >
+              Delete
+            </button>
+          </div>
+
+        </>
+      )}
+    </div>
+  );
+}
 
 function App() {
-  const [status, setStatus] = React.useState("loading");
+  const [health, setHealth] = React.useState("checking");
+  const [contacts, setContacts] = React.useState<Contact[]>(() => sortByCreatedAt(loadContacts()));
+  const [name, setName] = React.useState("");
+  const [email, setEmail] = React.useState("");
+  const [phone, setPhone] = React.useState("");
+  const [company, setCompany] = React.useState("");
+  const [notes, setNotes] = React.useState("");
+  const [query, setQuery] = React.useState("");
 
   React.useEffect(() => {
     let active = true;
     getHealth()
       .then((value) => {
         if (active) {
-          setStatus(value);
+          setHealth(value);
         }
       })
       .catch(() => {
         if (active) {
-          setStatus("error");
+          setHealth("error");
         }
       });
 
@@ -283,10 +555,281 @@ function App() {
     };
   }, []);
 
+  React.useEffect(() => {
+    saveContacts(contacts);
+  }, [contacts]);
+
+  const createContact = React.useCallback(() => {
+    const normalizedName = name.trim();
+    if (normalizedName.length === 0) {
+      return;
+    }
+
+    const contact: Contact = {
+      id: makeContactId(),
+      name: normalizedName,
+      email: email.trim(),
+      phone: phone.trim(),
+      company: company.trim(),
+      notes: notes.trim(),
+      createdAt: new Date().toISOString()
+    };
+
+    setContacts((current) => sortByCreatedAt([...current, contact]));
+    setName("");
+    setEmail("");
+    setPhone("");
+    setCompany("");
+    setNotes("");
+  }, [company, email, name, notes, phone]);
+
+  const updateContact = React.useCallback((contactId: string, patch: Partial<Pick<Contact, "name" | "email" | "phone" | "company" | "notes">>) => {
+    setContacts((current) =>
+      current.map((contact) => {
+        if (contact.id !== contactId) {
+          return contact;
+        }
+        return {
+          ...contact,
+          ...patch
+        };
+      })
+    );
+  }, []);
+
+  const deleteContact = React.useCallback((contactId: string) => {
+    setContacts((current) => current.filter((contact) => contact.id !== contactId));
+  }, []);
+
+  const filteredContacts = React.useMemo(() => {
+    const text = query.trim().toLowerCase();
+    if (text.length === 0) {
+      return contacts;
+    }
+
+    return contacts.filter((contact) => {
+      return (
+        contact.name.toLowerCase().includes(text) ||
+        contact.email.toLowerCase().includes(text) ||
+        contact.phone.toLowerCase().includes(text) ||
+        contact.company.toLowerCase().includes(text) ||
+        contact.notes.toLowerCase().includes(text)
+      );
+    });
+  }, [contacts, query]);
+
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>
-      <h1>${projectName} frontend is ready.</h1>
-      <p>Backend health: {status}</p>
+    <div
+      style={{
+        fontFamily: "Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+        padding: "2rem",
+        background: "#f8fafc",
+        minHeight: "100vh",
+        color: "#111827"
+      }}
+    >
+      <div style={{ maxWidth: 1100, margin: "0 auto", display: "grid", gap: 18 }}>
+        <header
+          style={{
+            background: "linear-gradient(135deg, #111827, #1f2937)",
+            color: "#ffffff",
+            borderRadius: 14,
+            padding: "20px 22px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            flexWrap: "wrap"
+          }}
+        >
+          <div>
+            <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>${projectName} Contacts</h1>
+            <p style={{ margin: "6px 0 0", opacity: 0.9, fontSize: 14 }}>
+              Simple contact list CRUD generated by Manifold.
+            </p>
+          </div>
+          <div
+            style={{
+              border: "1px solid rgba(255,255,255,0.2)",
+              borderRadius: 999,
+              padding: "7px 12px",
+              fontSize: 12,
+              background: "rgba(255,255,255,0.1)"
+            }}
+          >
+            Backend health: {health}
+          </div>
+        </header>
+
+        <section
+          style={{
+            background: "#ffffff",
+            border: "1px solid #e5e7eb",
+            borderRadius: 14,
+            padding: 16,
+            display: "grid",
+            gap: 10
+          }}
+        >
+          <h2 style={{ margin: 0, fontSize: 18 }}>Add contact</h2>
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Full name"
+            style={{
+              width: "100%",
+              border: "1px solid #d1d5db",
+              borderRadius: 10,
+              padding: "10px 12px",
+              fontSize: 14
+            }}
+          />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <input
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="Email"
+              style={{
+                width: "100%",
+                border: "1px solid #d1d5db",
+                borderRadius: 10,
+                padding: "10px 12px",
+                fontSize: 14
+              }}
+            />
+            <input
+              value={phone}
+              onChange={(event) => setPhone(event.target.value)}
+              placeholder="Phone"
+              style={{
+                width: "100%",
+                border: "1px solid #d1d5db",
+                borderRadius: 10,
+                padding: "10px 12px",
+                fontSize: 14
+              }}
+            />
+          </div>
+          <input
+            value={company}
+            onChange={(event) => setCompany(event.target.value)}
+            placeholder="Company"
+            style={{
+              width: "100%",
+              border: "1px solid #d1d5db",
+              borderRadius: 10,
+              padding: "10px 12px",
+              fontSize: 14
+            }}
+          />
+          <textarea
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+            placeholder="Notes (optional)"
+            rows={3}
+            style={{
+              width: "100%",
+              border: "1px solid #d1d5db",
+              borderRadius: 10,
+              padding: "10px 12px",
+              fontSize: 14,
+              resize: "vertical"
+            }}
+          />
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search contacts"
+              style={{
+                minWidth: 260,
+                border: "1px solid #d1d5db",
+                borderRadius: 10,
+                padding: "10px 12px",
+                fontSize: 14,
+                background: "#ffffff"
+              }}
+            />
+            <button
+              onClick={createContact}
+              style={{
+                border: "none",
+                borderRadius: 10,
+                padding: "10px 14px",
+                background: "#111827",
+                color: "#ffffff",
+                cursor: "pointer",
+                fontWeight: 600,
+                fontSize: 13
+              }}
+            >
+              Create contact
+            </button>
+          </div>
+        </section>
+
+        <section
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+            gap: 14
+          }}
+        >
+          <article
+            style={{
+              gridColumn: "1 / -1",
+              background: "#ffffff",
+              border: "1px solid #e5e7eb",
+              borderRadius: 14,
+              padding: 14,
+              display: "grid",
+              gap: 10,
+              alignContent: "start"
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <h3 style={{ margin: 0, fontSize: 16 }}>Contacts</h3>
+              <span
+                style={{
+                  background: "#f3f4f6",
+                  borderRadius: 999,
+                  fontSize: 12,
+                  padding: "3px 8px",
+                  color: "#374151"
+                }}
+              >
+                {filteredContacts.length} shown / {contacts.length} total
+              </span>
+            </div>
+
+            {filteredContacts.length === 0 ? (
+              <div
+                style={{
+                  border: "1px dashed #d1d5db",
+                  borderRadius: 10,
+                  padding: "16px 10px",
+                  color: "#6b7280",
+                  fontSize: 13,
+                  textAlign: "center"
+                }}
+              >
+                No contacts match your search.
+              </div>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
+                {filteredContacts.map((contact) => (
+                  <ContactCard
+                    key={contact.id}
+                    contact={contact}
+                    onUpdate={updateContact}
+                    onDelete={deleteContact}
+                  />
+                ))}
+              </div>
+            )}
+          </article>
+        </section>
+      </div>
     </div>
   );
 }
